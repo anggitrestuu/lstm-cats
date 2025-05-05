@@ -1,3 +1,5 @@
 dataset/
 .pytest_cache/
 __pycache__/
+
+gray_dataset/
