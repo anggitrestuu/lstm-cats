@@ -77,4 +77,3 @@ K-Nearest Neighbors (KNN) is a simple, instance-based learning algorithm used fo
 
 
 ## Dataset 
-curl -L "https://app.roboflow.com/ds/JmGcEN6KdW?key=AT9EOBTAdi" > roboflow.zip; unzip roboflow.zip; rm roboflow.zip
