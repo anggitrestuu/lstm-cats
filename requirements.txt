@@ -10,3 +10,4 @@ ipywidgets>=7.6.0
 jupyter>=1.0.0
 streamlit>=1.22.0
 pillow>=9.0.0
+imbalanced-learn>=0.10.0

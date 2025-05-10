@@ -7,11 +7,10 @@ import cv2
 import os
 
 from sklearn.manifold import TSNE
-from sklearn.model_selection import train_test_split
 from skimage.feature.texture import graycomatrix, graycoprops
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 import warnings
 
@@ -39,15 +38,15 @@ def load_data():
                         {
                             "image": img_file,
                             "label": label,
-                            "split": "training",
+                            "split": "train",
                             "filepath": os.path.join(class_dir, img_file),
                         }
                     )
 
-    # Process validation data
-    val_dir = os.path.join(dataset_dir, "val")
+    # Process test data
+    test_dir = os.path.join(dataset_dir, "val")  # Using val directory as test
     for label in CLASSES:
-        class_dir = os.path.join(val_dir, label)
+        class_dir = os.path.join(test_dir, label)
         if os.path.exists(class_dir):
             for img_file in os.listdir(class_dir):
                 if img_file.lower().endswith((".jpg", ".jpeg", ".png")):
@@ -55,7 +54,7 @@ def load_data():
                         {
                             "image": img_file,
                             "label": label,
-                            "split": "validation",
+                            "split": "test",
                             "filepath": os.path.join(class_dir, img_file),
                         }
                     )
@@ -80,6 +79,9 @@ def add_glcm(df):
         for feat in features:
             df[f"{feat[0:4]}_{col}"] = 0
 
+    # Process with progress bar
+    progress_bar = st.progress(0)
+    total_images = len(df)
     for i in df.index:
         path = df["filepath"].iloc[i]
         img = cv2.imread(path)
@@ -98,6 +100,10 @@ def add_glcm(df):
             for feat in features:
                 val = graycoprops(glcm, feat)[0][0]
                 df.loc[i, f"{feat[0:4]}_{col}"] = val
+
+        # Update progress bar
+        progress_bar.progress((i + 1) / total_images)
+
     return df
 
 
@@ -167,7 +173,7 @@ def preprocess_all_to_grayscale(df):
     os.makedirs(gray_base_dir, exist_ok=True)
 
     # Create subdirectories
-    for split in ["training", "validation"]:
+    for split in ["train", "test"]:
         for label in CLASSES:
             os.makedirs(os.path.join(gray_base_dir, split, label), exist_ok=True)
 
@@ -179,9 +185,12 @@ def preprocess_all_to_grayscale(df):
         axis=1,
     )
 
-    for i in df.index:
-        original_path = df["filepath"].iloc[i]
-        gray_path = df["gray_filepath"].iloc[i]
+    # Process images
+    progress_bar = st.progress(0)
+    total_images = len(df)
+    for i, row in enumerate(df.itertuples()):
+        original_path = row.filepath
+        gray_path = row.gray_filepath
 
         # Membaca gambar dan mengubahnya menjadi grayscale
         img = cv2.imread(original_path)
@@ -193,6 +202,9 @@ def preprocess_all_to_grayscale(df):
 
         # Menyimpan gambar grayscale
         cv2.imwrite(gray_path, gray_img)
+
+        # Update progress bar
+        progress_bar.progress((i + 1) / total_images)
 
     return df
 
@@ -267,19 +279,42 @@ elif menu == "3. Ekstraksi Fitur GLCM":
     df = load_data()
 
     # Sample data for faster processing if needed
-    sample_size = st.slider("Jumlah sampel per kelas", 10, 300, 180)
+    sample_size = st.slider("Jumlah sampel per kelas", 10, 300, 100)
 
     if st.button("Ekstrak Fitur GLCM"):
         with st.spinner("Mengekstrak fitur GLCM..."):
-            # Sample data
+            # Sample data while maintaining train/test split
             sampled_df = pd.DataFrame()
+
+            # Process train data
+            train_df = df[df["split"] == "train"]
             for label in CLASSES:
-                class_df = df[df["label"] == label].sample(
-                    n=min(sample_size, len(df[df["label"] == label]))
+                class_df = train_df[train_df["label"] == label].sample(
+                    n=min(sample_size, len(train_df[train_df["label"] == label])),
+                    random_state=42,
+                )
+                sampled_df = pd.concat([sampled_df, class_df])
+
+            # Process test data
+            test_df = df[df["split"] == "test"]
+            for label in CLASSES:
+                class_df = test_df[test_df["label"] == label].sample(
+                    n=min(sample_size // 2, len(test_df[test_df["label"] == label])),
+                    random_state=42,
                 )
                 sampled_df = pd.concat([sampled_df, class_df])
 
             sampled_df.reset_index(drop=True, inplace=True)
+
+            # Display split distribution
+            st.write("Distribusi data train/test:")
+            split_counts = sampled_df["split"].value_counts()
+            st.bar_chart(split_counts)
+
+            # Display class distribution
+            st.write("Distribusi kelas:")
+            class_counts = sampled_df["label"].value_counts()
+            st.bar_chart(class_counts)
 
             # Ekstraksi fitur GLCM
             sampled_df = add_glcm(sampled_df)
@@ -356,42 +391,55 @@ elif menu == "5. Pelatihan Model KNN":
 
         # KNN parameters
         n_neighbors = st.slider("Jumlah Tetangga (K)", 1, 20, 5)
-        test_size = st.slider("Ukuran Data Test", 0.1, 0.5, 0.2)
 
         if st.button("Latih Model KNN"):
             with st.spinner("Melatih model KNN..."):
-                # Split data
-                X_train, X_val, y_train, y_val = train_test_split(
-                    features,
-                    labels,
-                    test_size=test_size,
-                    random_state=42,
-                    stratify=labels,
-                )
+                # Split data berdasarkan kolom 'split' yang sudah ada
+                train_indices = df["split"] == "train"
+                test_indices = df["split"] == "test"
+
+                # Check if test set is empty
+                if not any(test_indices):
+                    st.warning(
+                        "Test dataset is empty. Creating a train/test split from training data."
+                    )
+                    # Use sklearn's train_test_split if no test data exists
+                    from sklearn.model_selection import train_test_split
+
+                    X = features
+                    y = labels
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=0.2, random_state=42
+                    )
+                else:
+                    X_train = features[train_indices]
+                    y_train = labels[train_indices]
+                    X_test = features[test_indices]
+                    y_test = labels[test_indices]
 
                 # Scale features
                 scaler = StandardScaler()
                 X_train = scaler.fit_transform(X_train)
-                X_val = scaler.transform(X_val)
+                X_test = scaler.transform(X_test)
 
                 # Train KNN
                 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
                 knn.fit(X_train, y_train)
 
                 # Evaluate
-                y_pred = knn.predict(X_val)
-                accuracy = accuracy_score(y_val, y_pred)
+                y_pred = knn.predict(X_test)
+                accuracy = accuracy_score(y_test, y_pred)
 
                 # Save model to session state
                 st.session_state.knn_model = knn
                 st.session_state.scaler = scaler
 
-                # Display results
-                st.success(f"Akurasi model KNN: {accuracy:.2f}")
+                # Display overall results
+                st.success(f"Akurasi model KNN: {accuracy:.4f}")
 
                 # Confusion Matrix
                 st.write("Confusion Matrix:")
-                conf_matrix = confusion_matrix(y_val, y_pred)
+                conf_matrix = confusion_matrix(y_test, y_pred)
                 plt.figure(figsize=(8, 6))
                 sb.heatmap(
                     conf_matrix,
@@ -404,6 +452,40 @@ elif menu == "5. Pelatihan Model KNN":
                 plt.ylabel("Actual")
                 plt.xlabel("Predicted")
                 plt.title("Confusion Matrix")
+                st.pyplot(plt)
+
+                # Per-class accuracy
+                st.write("### Akurasi Per Kelas")
+
+                # Calculate per-class metrics
+                class_report = classification_report(
+                    y_test, y_pred, target_names=CLASSES, output_dict=True
+                )
+
+                # Create a DataFrame for better display
+                report_df = pd.DataFrame(class_report).transpose()
+                report_df = report_df.drop("accuracy", errors="ignore")
+
+                # Display the classification report
+                st.dataframe(report_df.style.format("{:.4f}"))
+
+                # Create a bar chart for per-class accuracy
+                per_class_accuracy = {}
+                for i, class_name in enumerate(CLASSES):
+                    class_indices = y_test == i
+                    if sum(class_indices) > 0:  # Avoid division by zero
+                        class_correct = sum((y_test == i) & (y_pred == i))
+                        class_total = sum(y_test == i)
+                        per_class_accuracy[class_name] = class_correct / class_total
+
+                # Plot per-class accuracy
+                plt.figure(figsize=(10, 6))
+                plt.bar(per_class_accuracy.keys(), per_class_accuracy.values())
+                plt.title("Akurasi Per Kelas")
+                plt.ylabel("Akurasi")
+                plt.ylim(0, 1)
+                for i, (class_name, acc) in enumerate(per_class_accuracy.items()):
+                    plt.text(i, acc + 0.02, f"{acc:.4f}", ha="center")
                 st.pyplot(plt)
 
 # Menu 6: Prediksi Gambar
