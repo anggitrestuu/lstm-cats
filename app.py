@@ -252,23 +252,35 @@ elif menu == "2. Preprocessing Gambar ke Grayscale":
             st.success("Proses preprocessing selesai.")
             st.dataframe(df.head())
 
-            # Tampilkan contoh gambar asli dan grayscale
-            st.write("Contoh gambar sebelum dan sesudah preprocessing:")
-            original_img_path = df["filepath"].iloc[0]
-            gray_img_path = df["gray_filepath"].iloc[0]
+            # Tampilkan 10 contoh gambar sebelum dan sesudah preprocessing
+            st.write("10 contoh gambar sebelum dan sesudah preprocessing:")
 
-            original_img = cv2.imread(original_img_path)
-            gray_img = cv2.imread(gray_img_path, cv2.IMREAD_GRAYSCALE)
+            # Ambil 10 gambar pertama atau semua jika kurang dari 10
+            num_samples = min(10, len(df))
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(
-                    cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB),
-                    caption="Gambar Asli",
-                    use_column_width=True,
-                )
-            with col2:
-                st.image(gray_img, caption="Gambar Grayscale", use_column_width=True)
+            for i in range(num_samples):
+                original_img_path = df["filepath"].iloc[i]
+                gray_img_path = df["gray_filepath"].iloc[i]
+
+                original_img = cv2.imread(original_img_path)
+                gray_img = cv2.imread(gray_img_path, cv2.IMREAD_GRAYSCALE)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(
+                        cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB),
+                        caption=f"Gambar Asli {i+1}: {df['label'].iloc[i]}",
+                        use_column_width=True,
+                    )
+                with col2:
+                    st.image(
+                        gray_img,
+                        caption=f"Gambar Grayscale {i+1}: {df['label'].iloc[i]}",
+                        use_column_width=True,
+                    )
+
+                # Add a separator between image pairs
+                st.markdown("---")
 
 # Menu 3: Ekstraksi Fitur GLCM
 elif menu == "3. Ekstraksi Fitur GLCM":
